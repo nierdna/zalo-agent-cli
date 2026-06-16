@@ -6,6 +6,7 @@
  */
 
 import { getApi, autoLogin, clearSession } from "../core/zalo-client.js";
+import { startMCPProxy } from "../mcp/mcp-proxy.js";
 import { MessageBuffer } from "../mcp/message-buffer.js";
 import { ThreadFilter } from "../mcp/thread-filter.js";
 import { loadMCPConfig, parseDuration } from "../mcp/mcp-config.js";
@@ -159,6 +160,18 @@ export function registerMCPCommands(program) {
                         process.exit(1);
                     }
                     reconnectCount++;
+                    // Code 1000 = normal WS close by Zalo server — session still valid, just restart listener
+                    if (code === 1000) {
+                        console.error(`[mcp] WS closed (code: 1000). Restarting listener... (#${reconnectCount})`);
+                        await new Promise((r) => setTimeout(r, 2000));
+                        try {
+                            getApi().listener.start({ retryOnClose: true });
+                        } catch (e) {
+                            console.error(`[mcp] Failed to restart listener: ${e.message}`);
+                        }
+                        return;
+                    }
+                    // Other codes — need full re-login
                     console.error(
                         `[mcp] Connection closed (code: ${code}). Re-login in 5s... (reconnect #${reconnectCount})`,
                     );
@@ -215,5 +228,14 @@ export function registerMCPCommands(program) {
 
             // Keep process alive (MCP server runs on stdio — process must not exit)
             await new Promise(() => {});
+        });
+
+    mcp.command("proxy")
+        .description("Proxy a remote HTTP MCP server over local stdio (for Claude Desktop)")
+        .requiredOption("--url <url>", "Remote MCP server URL (e.g. https://zalo-mcp.example.com/mcp)")
+        .option("--auth <token>", "Bearer token for Authorization header")
+        .action(async (opts) => {
+            process.env.ZALO_JSON_MODE = "1";
+            await startMCPProxy(opts.url, opts.auth || null);
         });
 }
