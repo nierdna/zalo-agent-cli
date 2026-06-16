@@ -68,8 +68,6 @@ export function registerServeCommand(program) {
         .option("--host <host>", "Bind address", "0.0.0.0")
         .option("--auth <token>", "Bearer token for /mcp endpoint (env: MCP_AUTH_TOKEN)")
         .action(async (opts) => {
-            process.env.ZALO_JSON_MODE = "1";
-
             // Prevent unhandled rejections/exceptions from killing the server
             process.on("unhandledRejection", (reason) => {
                 console.error("[serve] Unhandled rejection (non-fatal):", reason?.message || reason);
@@ -196,9 +194,15 @@ export function registerServeCommand(program) {
                 while (true) {
                     attempt++;
                     try {
-                        const { api, ownId } = await loginWithQR(null, (event) => {
-                            qrImagePath = event.data?.qrPath || event.qrPath || null;
-                            console.error(`[serve] QR ready at http://localhost:${port}/qr.png`);
+                        const { api, ownId } = await loginWithQR(null, async (event) => {
+                            const savePath = `/tmp/zalo-qr-${Date.now()}.png`;
+                            try {
+                                await event.actions.saveToFile(savePath);
+                                qrImagePath = savePath;
+                                console.error(`[serve] QR saved → http://localhost:${port}/qr.png`);
+                            } catch (e) {
+                                console.error(`[serve] Failed to save QR image: ${e.message}`);
+                            }
                         });
 
                         // Save credentials
