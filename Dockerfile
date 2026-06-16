@@ -6,8 +6,6 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY src/ ./src/
-COPY assets/ ./assets/ 2>/dev/null || true
-
 # Data dir for Zalo credentials/session — mount as volume in production
 RUN mkdir -p /data && ln -sf /data /root/.zalo-agent-cli
 
