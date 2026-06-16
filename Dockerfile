@@ -3,7 +3,7 @@ FROM node:22-alpine
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev && apk add --no-cache wget
 
 COPY src/ ./src/
 # Data dir for Zalo credentials/session — mount as volume in production

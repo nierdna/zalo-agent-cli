@@ -70,6 +70,14 @@ export function registerServeCommand(program) {
         .action(async (opts) => {
             process.env.ZALO_JSON_MODE = "1";
 
+            // Prevent unhandled rejections/exceptions from killing the server
+            process.on("unhandledRejection", (reason) => {
+                console.error("[serve] Unhandled rejection (non-fatal):", reason?.message || reason);
+            });
+            process.on("uncaughtException", (err) => {
+                console.error("[serve] Uncaught exception (non-fatal):", err.message);
+            });
+
             const port = Number(opts.port) || 3000;
             const host = opts.host || "0.0.0.0";
             const authToken = opts.auth || process.env.MCP_AUTH_TOKEN || null;
@@ -184,26 +192,33 @@ export function registerServeCommand(program) {
             async function startQRLogin() {
                 loginStatus = "logging_in";
                 console.error("[serve] Not logged in — starting QR login...");
-                try {
-                    const { api, ownId } = await loginWithQR(null, (event) => {
-                        qrImagePath = event.data?.qrPath || event.qrPath || null;
-                        console.error(`[serve] QR ready at http://localhost:${port}/qr.png`);
-                    });
+                let attempt = 0;
+                while (true) {
+                    attempt++;
+                    try {
+                        const { api, ownId } = await loginWithQR(null, (event) => {
+                            qrImagePath = event.data?.qrPath || event.qrPath || null;
+                            console.error(`[serve] QR ready at http://localhost:${port}/qr.png`);
+                        });
 
-                    // Save credentials
-                    const creds = extractCredentials();
-                    saveCredentials(ownId, creds);
-                    addAccount(ownId, api.getContext?.()?.name || "", null);
-                    setActive(ownId);
+                        // Save credentials
+                        const creds = extractCredentials();
+                        saveCredentials(ownId, creds);
+                        addAccount(ownId, api.getContext?.()?.name || "", null);
+                        setActive(ownId);
 
-                    loginUser = api.getContext?.()?.name || ownId;
-                    loginStatus = "logged_in";
-                    console.error(`[serve] Logged in as: ${loginUser}`);
+                        loginUser = api.getContext?.()?.name || ownId;
+                        loginStatus = "logged_in";
+                        console.error(`[serve] Logged in as: ${loginUser}`);
 
-                    await startListener();
-                } catch (e) {
-                    loginStatus = "error";
-                    console.error("[serve] QR login failed:", e.message);
+                        await startListener();
+                        return;
+                    } catch (e) {
+                        loginStatus = "logging_in";
+                        console.error(`[serve] QR login failed (attempt ${attempt}): ${e.message}. Retrying in 10s...`);
+                        qrImagePath = null;
+                        await new Promise((r) => setTimeout(r, 10000));
+                    }
                 }
             }
 
