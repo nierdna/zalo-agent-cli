@@ -61,7 +61,7 @@ export function registerMCPCommands(program) {
         .action(async (opts) => {
             // Perform login explicitly here — preAction hook skips "mcp"
             try {
-                await autoLogin(false);
+                await autoLogin(true);
             } catch (e) {
                 console.error("[mcp] Auto-login failed:", e.message);
                 process.exit(1);

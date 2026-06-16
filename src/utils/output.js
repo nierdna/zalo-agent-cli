@@ -17,5 +17,5 @@ export function output(data, jsonMode, humanFormatter) {
 
 export const success = (msg) => console.log(chalk.green("  ✓ " + msg));
 export const error = (msg) => console.log(chalk.red("  ✗ " + msg));
-export const info = (msg) => console.log(chalk.cyan("  ● " + msg));
-export const warning = (msg) => console.log(chalk.yellow("  ⚠ " + msg));
+export const info = (msg) => (process.env.ZALO_JSON_MODE ? console.error : console.log)(chalk.cyan("  ● " + msg));
+export const warning = (msg) => (process.env.ZALO_JSON_MODE ? console.error : console.log)(chalk.yellow("  ⚠ " + msg));
