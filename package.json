@@ -1,5 +1,5 @@
 {
-  "name": "zalo-agent-cli",
+  "name": "@andreinnguyen/zalo-agent-cli",
   "version": "1.6.2",
   "description": "CLI tool for Zalo automation — multi-account, proxy, bank transfers, QR payments, Official Account API v3.0",
   "type": "module",
@@ -36,7 +36,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/PhucMPham/zalo-agent-cli"
+    "url": "https://github.com/nierdna/zalo-agent-cli"
   },
   "license": "MIT",
   "engines": {
