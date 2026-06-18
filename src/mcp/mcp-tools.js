@@ -1,11 +1,24 @@
 /**
  * MCP tool registrations for Zalo message access and sending.
- * Registers 7 tools: zalo_get_messages, zalo_get_history, zalo_send_message, zalo_list_threads, zalo_search_threads, zalo_mark_read, zalo_view_media.
+ * Registers 10 tools: zalo_get_messages, zalo_get_history, zalo_send_message, zalo_list_threads,
+ * zalo_search_threads, zalo_mark_read, zalo_view_media, zalo_find_phone, zalo_find_phones, zalo_friend_add.
  */
 
 import { z } from "zod";
 import { downloadMedia, openFile } from "./media-downloader.js";
 import { extractMessageText } from "../utils/extract-message-text.js";
+
+/** Extract numeric error code from zca-js error message string, e.g. "... (-216) ...". */
+function extractErrorCode(msg) {
+    const match = String(msg).match(/\((-?\d+)\)/);
+    return match ? Number(match[1]) : null;
+}
+
+/** Random delay in ms between min/max (inclusive), used to throttle friend-add calls. */
+function randomDelay(minMs, maxMs) {
+    const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Thread type constants matching zca-js ThreadType enum */
 const THREAD_USER = 0;
@@ -349,6 +362,111 @@ export function registerTools(server, api, buffer, filter, config, nameCache) {
             } catch (e) {
                 console.error("[mcp-tools] zalo_view_media error:", e.message);
                 return err(e.message);
+            }
+        },
+    );
+
+    // --- zalo_find_phone ---
+    server.registerTool(
+        "zalo_find_phone",
+        {
+            title: "Find Zalo User by Phone",
+            description:
+                "Look up a single Zalo user by phone number. Returns their uid (usable as threadId for messaging/friend requests) " +
+                "if found and their phone search is enabled. Returns not-found if the number isn't registered on Zalo or has phone search disabled.",
+            inputSchema: z.object({
+                phone: z.string().min(1).describe("Phone number to search, e.g. 0912205001"),
+            }),
+        },
+        async ({ phone }) => {
+            try {
+                const result = await api.findUser(phone);
+                const u = result?.uid ? result : result?.data || null;
+                if (!u || !u.uid) {
+                    return ok({
+                        found: false,
+                        phone,
+                        reason: "No Zalo user found — not registered, or phone search disabled",
+                    });
+                }
+                return ok({
+                    found: true,
+                    phone,
+                    uid: u.uid,
+                    displayName: u.displayName || u.zaloName || u.display_name || u.zalo_name || null,
+                });
+            } catch (e) {
+                console.error("[mcp-tools] zalo_find_phone error:", e.message);
+                return err(`Find user failed: ${e.message}`);
+            }
+        },
+    );
+
+    // --- zalo_find_phones ---
+    server.registerTool(
+        "zalo_find_phones",
+        {
+            title: "Find Zalo Users by Phone (Batch)",
+            description:
+                "Look up multiple Zalo users by phone number in a single batch call. Returns a map of phone -> {uid, displayName} " +
+                "for numbers that were found; numbers not found (unregistered or phone search disabled) are omitted from results " +
+                "and listed under notFound.",
+            inputSchema: z.object({
+                phones: z.array(z.string().min(1)).min(1).max(50).describe("Phone numbers to search (max 50 per call)"),
+            }),
+        },
+        async ({ phones }) => {
+            try {
+                const result = await api.getMultiUsersByPhones(phones);
+                const entries = Object.entries(result || {});
+                const found = entries.map(([phone, user]) => ({
+                    phone,
+                    uid: user.uid || null,
+                    displayName: user.displayName || user.zaloName || null,
+                }));
+                const foundPhones = new Set(entries.map(([phone]) => phone));
+                const notFound = phones.filter((p) => !foundPhones.has(p));
+                return ok({ found, notFound, totalFound: found.length, totalNotFound: notFound.length });
+            } catch (e) {
+                console.error("[mcp-tools] zalo_find_phones error:", e.message);
+                return err(`Find users by phone failed: ${e.message}`);
+            }
+        },
+    );
+
+    // --- zalo_friend_add ---
+    const friendAddConfig = config.limits?.friendAdd || {};
+    const friendAddMinDelay = friendAddConfig.minDelayMs ?? 3000;
+    const friendAddMaxDelay = friendAddConfig.maxDelayMs ?? 8000;
+    server.registerTool(
+        "zalo_friend_add",
+        {
+            title: "Send Zalo Friend Request",
+            description:
+                "Send a friend request to a Zalo user by uid, with an optional message. To reduce the risk of the sending " +
+                `account being flagged for spam/bot behavior, this tool waits a randomized ${friendAddMinDelay}-${friendAddMaxDelay}ms ` +
+                "delay before sending — call it once per recipient rather than in a tight loop without delay, and avoid sending " +
+                "the exact same message text to many recipients in a row.",
+            inputSchema: z.object({
+                userId: z.string().min(1).describe("Zalo uid to send the friend request to (from zalo_find_phone(s))"),
+                msg: z.string().max(500).optional().default("").describe("Optional message to include with the request"),
+            }),
+        },
+        async ({ userId, msg }) => {
+            try {
+                await randomDelay(friendAddMinDelay, friendAddMaxDelay);
+                const result = await api.sendFriendRequest(msg || "", userId);
+                return ok({ success: true, userId, result: result ?? null });
+            } catch (e) {
+                const code = e.code || extractErrorCode(e.message);
+                const errMap = {
+                    225: `Already friends with ${userId}.`,
+                    215: `User ${userId} may have blocked you or is unreachable.`,
+                    222: `User ${userId} already sent you a friend request — use friend accept flow instead.`,
+                    "-1": `Invalid userId "${userId}".`,
+                };
+                console.error("[mcp-tools] zalo_friend_add error:", e.message);
+                return err(errMap[code] || `Friend request failed (code ${code}): ${e.message}`);
             }
         },
     );
